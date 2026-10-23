@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Раскладушка — исправляет текст, набранный не в той раскладке</title>
+<meta name="description" content="Программа для Mac: сама исправляет слова, набранные не в той раскладке. «ghbdtn» станет «привет», «руддщ» — «hello». Работает без интернета.">
+<meta property="og:title" content="Раскладушка для Mac">
+<meta property="og:description" content="Пишите, не глядя на раскладку: «ghbdtn» станет «привет».">
+<meta property="og:image" content="icon.png">
+<link rel="icon" href="favicon.png">
+<link rel="stylesheet" href="fonts.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="wrap top">
+  <a class="brand" href="./"><img src="icon.png" alt="">Раскладушка</a>
+  <nav aria-label="Разделы">
+    <a href="#how">Как работает</a>
+    <a href="#privacy">Приватность</a>
+    <a href="#install">Установка</a>
+    <a href="#faq">Вопросы</a>
+  </nav>
+</header>
+
+<main>
+  <div class="wrap hero">
+    <h1>Пишите, не глядя на раскладку</h1>
+    <p class="lead">Раскладушка сама исправляет слова, набранные не в той раскладке, и переключает её за вас. Для Mac, русский и английский.</p>
+
+    <div class="demo" id="demo" role="img" aria-label="Пример: набрано «ghbdtn rfr ltkf», на экране — «привет как дела»">
+      <span class="fixed">привет как дела</span>
+    </div>
+    <p class="demo-note">Серым — что вы набрали, красным — что осталось на экране.</p>
+
+    <div class="actions">
+      <a class="button" href="download/Raskladushka.zip" download>Скачать для Mac</a>
+      <span class="meta">Бесплатно во время беты. macOS 13 и новее, Apple Silicon и Intel</span>
+    </div>
+  </div>
+
+  <section id="how">
+    <div class="wrap">
+      <h2>Три способа исправить слово</h2>
+      <div class="ways">
+        <div>
+          <div class="how"><span class="key" style="min-width:7em">пробел</span></div>
+          <h3>Само, пока вы печатаете</h3>
+          <p>После пробела, точки или Enter Раскладушка проверяет слово по словарям macOS. Если оно набрано не в той раскладке — заменяет и переключает раскладку дальше.</p>
+        </div>
+        <div>
+          <div class="how combo"><span class="key">⇧</span><span class="key">⇧</span></div>
+          <h3>Двойной Shift — вручную</h3>
+          <p>Исправляет последнее слово, если Раскладушка его пропустила. Если она исправила зря — возвращает как было и запоминает это слово.</p>
+        </div>
+        <div>
+          <div class="how combo"><span class="key">⌥</span>+<span class="key">⇧</span></div>
+          <h3>Option + Shift — выделенное</h3>
+          <p>Переводит в другую раскладку весь выделенный текст: фразу, абзац или сообщение, набранное целиком не той раскладкой.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="privacy">
+    <div class="wrap privacy">
+      <p class="big">Раскладушка видит каждое нажатие клавиш. Поэтому она ничего никуда не отправляет.</p>
+      <ul>
+        <li>Программа не выходит в интернет — ни для статистики, ни для проверки слов. Словари берутся из самой macOS.</li>
+        <li>Нажатия не записываются. В памяти только текущее слово, после пробела оно забывается.</li>
+        <li>Слова, которые вы попросили не исправлять, хранятся в виде хэшей, а не текстом.</li>
+        <li>В полях паролей macOS включает защищённый ввод, и Раскладушка их не видит.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="wrap">
+      <h2>Установка</h2>
+      <ol class="steps">
+        <li>
+          <h3>Скачайте и откройте архив</h3>
+          <p>В папке «Загрузки» появится программа Раскладушка.</p>
+        </li>
+        <li>
+          <h3>Перенесите её в «Программы»</h3>
+          <p>Перетащите значок в папку «Программы» в боковой панели Finder и откройте оттуда.</p>
+        </li>
+        <li>
+          <h3>Разрешите запуск</h3>
+          <p>macOS сообщит, что не может проверить разработчика, — нажмите «Готово». Затем откройте <span class="path">Системные настройки → Конфиденциальность и безопасность</span>, внизу нажмите «Всё равно открыть» и подтвердите паролем.</p>
+        </li>
+        <li>
+          <h3>Выдайте Универсальный доступ</h3>
+          <p>Раскладушка откроет окно с подсказками: нажмите «Открыть настройки» и включите её в списке. Когда все пункты в окне станут зелёными, всё готово.</p>
+        </li>
+      </ol>
+      <div class="aside">
+        <p>На macOS 13 и 14 шаг 3 проще: нажмите на программу правой кнопкой, выберите «Открыть» и ещё раз «Открыть».</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq" class="faq">
+    <div class="wrap">
+      <h2>Вопросы</h2>
+      <details>
+        <summary>Почему macOS предупреждает при первом запуске?</summary>
+        <p>Так macOS встречает программы, которые не прошли платную проверку Apple. Раскладушку нельзя продавать через Mac App Store: Apple не пускает туда программы, которые перехватывают клавиатуру. Разрешить запуск нужно один раз.</p>
+      </details>
+      <details>
+        <summary>Зачем ей Универсальный доступ?</summary>
+        <p>Без него программа не видит, что вы набираете, и не может заменить слово. Другие переключатели раскладки просят то же разрешение.</p>
+      </details>
+      <details>
+        <summary>В каких программах она работает?</summary>
+        <p>Везде, где можно печатать: в браузере, мессенджерах, почте, терминале, редакторах кода, Spotlight. Не работает в виртуальных машинах и программах удалённого доступа. Любую программу можно исключить в меню Раскладушки.</p>
+      </details>
+      <details>
+        <summary>А если она исправит слово, которое я написал нарочно?</summary>
+        <p>Нажмите Shift два раза подряд: слово вернётся, а Раскладушка его запомнит и больше трогать не будет.</p>
+      </details>
+      <details>
+        <summary>Какие языки поддерживаются?</summary>
+        <p>Русский и английский. В системе должны быть включены обе раскладки: английская и «Русская — ПК» или обычная русская.</p>
+      </details>
+      <details>
+        <summary>Что-то не работает — куда писать?</summary>
+        <p>На <a href="mailto:manshinvu@mail.ru">manshinvu@mail.ru</a>. Опишите, в какой программе и какое слово исправилось не так, и приложите текст из пункта «Диагностика…» в меню Раскладушки (там есть кнопка «Скопировать»).</p>
+      </details>
+      <details>
+        <summary>Сколько стоит?</summary>
+        <p>Пока идёт бета — бесплатно.</p>
+      </details>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 Раскладушка</span>
+    <a href="privacy.html">Политика конфиденциальности</a>
+    <a href="mailto:manshinvu@mail.ru">manshinvu@mail.ru</a>
+  </div>
+</footer>
+
+<script>
+// Демонстрация: печатаем слова «не в той раскладке», после пробела слово превращается в правильное.
+(function () {
+  var demo = document.getElementById('demo');
+  if (!demo || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  var phrases = [
+    [['ghbdtn', 'привет'], ['rfr', 'как'], ['ltkf', 'дела']],
+    [['ыутв', 'send'], ['ьу', 'me'], ['еру', 'the'], ['дштл', 'link']],
+    [['yt', 'не'], ['pyf.', 'знаю'], ['ult', 'где'], ['jy', 'он']],
+  ];
+  var p = 0;
+  function el(cls, text) { var s = document.createElement('span'); s.className = cls; s.textContent = text; return s; }
+  function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  async function play() {
+    for (;;) {
+      demo.textContent = '';
+      var caret = el('caret', '');
+      demo.appendChild(caret);
+      var words = phrases[p];
+      for (var i = 0; i < words.length; i++) {
+        var typed = el('lat', '');
+        demo.insertBefore(typed, caret);
+        for (var c = 0; c < words[i][0].length; c++) {
+          typed.textContent += words[i][0][c];
+          await wait(85 + Math.random() * 60);
+        }
+        await wait(260);
+        demo.replaceChild(el('fixed', words[i][1]), typed);
+        if (i < words.length - 1) demo.insertBefore(document.createTextNode(' '), caret);
+        await wait(200);
+      }
+      await wait(2400);
+      p = (p + 1) % phrases.length;
+    }
+  }
+  play();
+})();
+</script>
+</body>
+</html>

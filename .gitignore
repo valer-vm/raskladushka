@@ -1,0 +1,13 @@
+# Собранное приложение и архивы (пересобираются: build.sh, package.sh)
+*.app/
+dist/
+site/download/
+*.zip
+
+# macOS и локальные настройки Claude Code
+.DS_Store
+.claude/
+
+# Только локально: рабочие заметки и сверка с Punto Switcher
+HANDOFF.md
+punto_engine.py

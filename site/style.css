@@ -1,0 +1,156 @@
+/* Раскладушка — стили сайта. Идея: клавиша с двумя надписями, латиница тёмная, кириллица красная. */
+:root {
+  --bg: #e9ecf0;          /* алюминий */
+  --surface: #f7f8fa;     /* поверхность клавиши */
+  --ink: #1c2433;         /* латиница и текст */
+  --ink-soft: #566074;
+  --cyr: #c8322b;         /* кириллица, как на клавиатурах */
+  --edge: #c9ced7;        /* край и тень клавиши */
+  --edge-deep: #aeb5c1;
+  --focus: #2a5bd7;
+  --measure: 40rem;
+  --display: 'Unbounded', 'Helvetica Neue', Arial, sans-serif;
+  --text: 'Onest', -apple-system, 'Helvetica Neue', Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15181e; --surface: #20242c; --ink: #e6e9ef; --ink-soft: #9aa3b2;
+    --cyr: #ff6b5e; --edge: #31363f; --edge-deep: #0c0e12; --focus: #7aa2ff;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15181e; --surface: #20242c; --ink: #e6e9ef; --ink-soft: #9aa3b2;
+  --cyr: #ff6b5e; --edge: #31363f; --edge-deep: #0c0e12; --focus: #7aa2ff;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 1.0625rem/1.6 var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration-thickness: 1px; text-underline-offset: 0.18em; }
+a:hover { color: var(--cyr); }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; border-radius: 4px; }
+
+.wrap { max-width: 68rem; margin: 0 auto; padding: 0 1rem; }
+@media (min-width: 720px) { .wrap { padding: 0 2rem; } }
+
+/* Шапка */
+.top { display: flex; align-items: center; justify-content: space-between; padding-block: 1.25rem; }
+.brand { display: flex; align-items: center; gap: 0.65rem; text-decoration: none; font: 700 1rem/1 var(--display); letter-spacing: -0.01em; }
+.brand img { width: 2rem; height: 2rem; }
+.top nav { display: flex; gap: 1.25rem; font-size: 0.95rem; }
+.top nav a { text-decoration: none; color: var(--ink-soft); }
+.top nav a:hover { color: var(--ink); }
+@media (max-width: 560px) { .top nav { display: none; } }
+
+/* Клавиша с двумя надписями */
+.key {
+  display: inline-grid; place-items: center; position: relative;
+  min-width: 2.4em; height: 2.4em; padding: 0 0.6em;
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--edge); border-radius: 0.45em;
+  box-shadow: 0 0.16em 0 var(--edge-deep);
+  font: 500 0.95em/1 var(--text); vertical-align: -0.35em;
+}
+.key[data-ru]::after {
+  content: attr(data-ru); position: absolute; right: 0.4em; bottom: 0.3em;
+  font-size: 0.7em; color: var(--cyr);
+}
+.key[data-ru] { place-items: start; padding: 0.35em 0.45em; min-width: 2.4em; }
+.combo { white-space: nowrap; }
+
+/* Первый экран */
+.hero { padding-block: 3rem 4rem; }
+@media (min-width: 900px) { .hero { padding-block: 4.5rem 6rem; } }
+.hero h1 {
+  font: 700 clamp(2.4rem, 7vw, 5.25rem)/1.02 var(--display);
+  letter-spacing: -0.035em; margin: 0; max-width: 14ch;
+}
+.hero .lead { max-width: 34rem; margin: 1.5rem 0 2rem; font-size: 1.2rem; color: var(--ink-soft); }
+
+/* Демонстрация: строка, где набранное не в той раскладке превращается в нормальный текст */
+.demo {
+  margin: 2.75rem 0 2.5rem; padding: 1.4rem 1.5rem;
+  background: var(--surface); border: 1px solid var(--edge); border-radius: 0.9rem;
+  box-shadow: 0 0.3rem 0 var(--edge-deep);
+  font: 500 clamp(1.5rem, 4.6vw, 2.75rem)/1.25 var(--display); letter-spacing: -0.02em;
+  min-height: 2.9em; overflow-wrap: anywhere;
+}
+.demo .lat { color: var(--ink-soft); }
+.demo .fixed { color: var(--cyr); }
+.demo .caret {
+  display: inline-block; width: 0.08em; height: 1em; margin-left: 0.04em; vertical-align: -0.12em;
+  background: var(--ink); animation: blink 1s steps(1) infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .demo .caret { animation: none; } }
+.demo-note { margin: -1.5rem 0 2.5rem; color: var(--ink-soft); font-size: 0.95rem; }
+
+/* Кнопка скачивания — тоже клавиша */
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem 1.5rem; }
+.button {
+  display: inline-flex; align-items: center; gap: 0.6rem;
+  padding: 0.95rem 1.5rem; border-radius: 0.7rem;
+  background: var(--ink); color: var(--bg); text-decoration: none;
+  font: 600 1.05rem/1 var(--text);
+  box-shadow: 0 0.22rem 0 var(--cyr);
+  transition: transform 0.08s, box-shadow 0.08s;
+}
+.button:hover { color: var(--bg); }
+.button:active { transform: translateY(0.18rem); box-shadow: 0 0.04rem 0 var(--cyr); }
+.meta { color: var(--ink-soft); font-size: 0.95rem; }
+
+/* Разделы */
+section { padding: 3.5rem 0; border-top: 1px solid var(--edge); }
+h2 { font: 700 clamp(1.6rem, 3.6vw, 2.3rem)/1.15 var(--display); letter-spacing: -0.025em; margin: 0 0 1.5rem; max-width: 22ch; }
+h3 { font: 600 1.15rem/1.35 var(--text); margin: 0 0 0.4rem; }
+p { margin: 0 0 1rem; max-width: var(--measure); }
+
+.ways { display: grid; gap: 2rem 3rem; }
+@media (min-width: 820px) { .ways { grid-template-columns: repeat(3, 1fr); } }
+.ways .how { margin-bottom: 0.9rem; min-height: 2.6rem; display: flex; align-items: center; gap: 0.35rem; color: var(--ink-soft); }
+.ways p { color: var(--ink-soft); }
+
+.privacy { display: grid; gap: 1.5rem 3rem; }
+@media (min-width: 820px) { .privacy { grid-template-columns: 1.1fr 1fr; align-items: start; } }
+.privacy .big { font: 500 clamp(1.3rem, 2.6vw, 1.7rem)/1.35 var(--display); letter-spacing: -0.015em; margin: 0; max-width: 24ch; }
+.privacy ul { margin: 0; padding-left: 1.2rem; color: var(--ink-soft); }
+.privacy li { margin-bottom: 0.6rem; }
+
+/* Установка — настоящая последовательность, поэтому с номерами */
+.steps { list-style: none; counter-reset: step; margin: 0; padding: 0; max-width: 46rem; }
+.steps li { counter-increment: step; position: relative; padding: 0 0 1.6rem 3.4rem; }
+.steps li::before {
+  content: counter(step); position: absolute; left: 0; top: -0.2rem;
+  width: 2.3rem; height: 2.3rem; display: grid; place-items: center;
+  background: var(--surface); border: 1px solid var(--edge); border-radius: 0.45rem;
+  box-shadow: 0 0.14rem 0 var(--edge-deep); font: 600 0.95rem/1 var(--text);
+}
+.steps p { color: var(--ink-soft); margin: 0; }
+.path { color: var(--ink); font-weight: 500; }
+.aside { margin-top: 0.5rem; padding: 1rem 1.2rem; border-left: 3px solid var(--cyr); background: var(--surface); border-radius: 0 0.5rem 0.5rem 0; max-width: 46rem; }
+.aside p { margin: 0; color: var(--ink-soft); }
+
+/* Вопросы */
+.faq details { border-bottom: 1px solid var(--edge); max-width: 46rem; }
+.faq summary { cursor: pointer; padding: 1rem 0; font-weight: 600; list-style: none; display: flex; justify-content: space-between; gap: 1rem; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: '+'; color: var(--ink-soft); font-weight: 400; transition: transform 0.15s; }
+.faq details[open] summary::after { transform: rotate(45deg); }
+.faq details p { color: var(--ink-soft); }
+
+footer { padding: 2.5rem 0 3rem; border-top: 1px solid var(--edge); color: var(--ink-soft); font-size: 0.95rem; }
+footer .wrap { display: flex; flex-wrap: wrap; gap: 0.5rem 2rem; justify-content: space-between; }
+footer a { color: inherit; }
+
+/* Текстовые страницы (политика и т. п.) */
+.doc { padding-block: 2.5rem 4rem; }
+.doc h1 { font: 700 clamp(1.9rem, 4.5vw, 2.8rem)/1.1 var(--display); letter-spacing: -0.03em; margin: 0 0 1.5rem; }
+.doc h2 { font-size: 1.35rem; margin-top: 2.5rem; max-width: none; }
+.doc ul { max-width: var(--measure); padding-left: 1.2rem; }
+.doc li { margin-bottom: 0.5rem; }
