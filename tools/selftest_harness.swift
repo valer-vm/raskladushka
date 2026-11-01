@@ -273,3 +273,18 @@ let exceptionChecks = [
 ]
 print("Поиск исключений: \(exceptionChecks.filter { $0 }.count)/\(exceptionChecks.count) верно")
 if exceptionChecks.contains(false) { exit(1) }
+
+
+let systemElement = AXUIElementCreateApplication(1)
+let appElement = AXUIElementCreateApplication(2)
+var fallbackCalled = false
+let preferred = focusedInputElement(systemRead: { systemElement }, applicationRead: { fallbackCalled = true; return appElement })
+let fallback = focusedInputElement(systemRead: { nil }, applicationRead: { appElement })
+let missing = focusedInputElement(systemRead: { nil }, applicationRead: { nil })
+let focusChecks = [
+    preferred.map { CFEqual($0, systemElement) } == true && !fallbackCalled,
+    fallback.map { CFEqual($0, appElement) } == true,
+    missing == nil,
+]
+print("Источники фокуса: \(focusChecks.filter { $0 }.count)/\(focusChecks.count) верно")
+if focusChecks.contains(false) { exit(1) }

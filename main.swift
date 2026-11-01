@@ -731,17 +731,44 @@ func focusedAppBundleID() -> String? {
     return NSWorkspace.shared.frontmostApplication?.bundleIdentifier
 }
 
+/// Electron по умолчанию может не публиковать дерево доступности.
+/// Запрашиваем его один раз для активного Electron-процесса, до обработки клавиш.
+var accessibilityPrepared = Set<pid_t>()
+var accessibilityPreparationNote = "не требовалась"
+func prepareAccessibility(for app: NSRunningApplication) {
+    guard let url = app.bundleURL,
+          FileManager.default.fileExists(atPath: url.appendingPathComponent("Contents/Frameworks/Electron Framework.framework").path),
+          accessibilityPrepared.insert(app.processIdentifier).inserted else { return }
+    let result = AXUIElementSetAttributeValue(AXUIElementCreateApplication(app.processIdentifier),
+        "AXManualAccessibility" as CFString, kCFBooleanTrue)
+    accessibilityPreparationNote = "\(app.bundleIdentifier ?? "Electron"): AXManualAccessibility = \(result.rawValue)"
+}
+
+func readFocusedElement(from scope: AXUIElement) -> AXUIElement? {
+    var ref: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(scope, kAXFocusedUIElementAttribute as CFString, &ref) == .success,
+          let ref = ref, CFGetTypeID(ref) == AXUIElementGetTypeID() else { return nil }
+    return (ref as! AXUIElement)
+}
+
+func focusedInputElement(
+    systemRead: () -> AXUIElement? = { readFocusedElement(from: AXUIElementCreateSystemWide()) },
+    applicationRead: () -> AXUIElement? = {
+        guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
+        return readFocusedElement(from: AXUIElementCreateApplication(app.processIdentifier))
+    }
+) -> AXUIElement? {
+    systemRead() ?? applicationRead()
+}
+
 /// Идентичность поля, в котором началась операция. Текст и положение курсора могут меняться,
 /// но отложенный ввод не должен переходить в другое поле или защищённый ввод.
 struct InputTarget {
     let element: AXUIElement
     static func capture() -> InputTarget? {
         guard !IsSecureEventInputEnabled() else { return nil }
-        var ref: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(),
-            kAXFocusedUIElementAttribute as CFString, &ref) == .success, let ref = ref,
-            CFGetTypeID(ref) == AXUIElementGetTypeID() else { return nil }
-        return InputTarget(element: ref as! AXUIElement)
+        guard let element = focusedInputElement() else { return nil }
+        return InputTarget(element: element)
     }
     func isCurrent() -> Bool {
         guard let now = InputTarget.capture() else { return false }
@@ -770,11 +797,7 @@ struct CaretContext: Equatable {
 
 /// nil — приложение не отдаёт текст через Accessibility.
 func caretContext() -> CaretContext? {
-    let system = AXUIElementCreateSystemWide()
-    var focusedRef: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
-          let focused = focusedRef else { return nil }
-    let element = focused as! AXUIElement
+    guard let element = focusedInputElement() else { return nil }
 
     var valueRef: CFTypeRef?
     guard AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef) == .success,
@@ -884,11 +907,7 @@ func supportsIdleCorrection(appID: String?, subrole: String?, identifier: String
 func isSearchFieldFocused() -> Bool {
     let appID = focusedAppBundleID()
     if supportsIdleCorrection(appID: appID, subrole: nil, identifier: nil) { return true }
-    var focusedRef: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(),
-        kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
-        let focused = focusedRef, CFGetTypeID(focused) == AXUIElementGetTypeID() else { return false }
-    let element = focused as! AXUIElement
+    guard let element = focusedInputElement() else { return false }
     func attribute(_ name: String) -> String? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else { return nil }
@@ -1869,6 +1888,7 @@ final class AppController: NSObject, NSMenuDelegate {
         if let front = NSWorkspace.shared.frontmostApplication,
            front.bundleIdentifier != Bundle.main.bundleIdentifier {
             lastApp = front
+            prepareAccessibility(for: front)
         }
 
         // Если меняются включённые раскладки — перечитываем таблицы клавиш.
@@ -1890,6 +1910,7 @@ final class AppController: NSObject, NSMenuDelegate {
         guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
               app.bundleIdentifier != Bundle.main.bundleIdentifier else { return }
         lastApp = app
+        prepareAccessibility(for: app)
     }
 
     func menuWillOpen(_ menu: NSMenu) {
@@ -2088,6 +2109,7 @@ final class AppController: NSObject, NSMenuDelegate {
         lines.append("Личных исключений слов: \(ignoredWords.count), своих исключённых приложений: \(userExcludedApps.count)")
         lines.append("Последнее решение: \(switcher.lastDecision)")
         lines.append("Последняя замена: \(switcher.lastReplaceNote)")
+        lines.append("Подготовка Accessibility: \(accessibilityPreparationNote)")
         lines.append("Защищённый ввод (Secure Input): "
             + (secureInputOwner().map { "ВКЛЮЧЁН (\($0)) — пока он включён, Раскладушка не видит клавиш" } ?? "выключен"))
 
