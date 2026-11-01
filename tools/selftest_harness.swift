@@ -113,7 +113,7 @@ let expectations: [(String, String, String)] = [
 var expectFail: [String] = []
 for (typed, lang, want) in expectations {
     let r = simulate(typed, lang: lang)
-    let got = String(r.prefix(want.count))
+    let got = r.components(separatedBy: "   [")[0]
     if got != want { expectFail.append("\(typed)(\(lang)) → «\(got)», ждали «\(want)»  \(r.dropFirst(want.count))") }
 }
 print("Ожидания: \(expectations.count - expectFail.count)/\(expectations.count) верно"); expectFail.forEach { print("  ✗", $0) }
@@ -215,3 +215,27 @@ if let dir = ProcessInfo.processInfo.environment["PUNTO_BENCH"] {
         print("Punto \(file): не совпало \(wrong.count)/\(total): \(wrong.prefix(60))")
     }
 }
+
+
+// Проверка проверяемого текста должна отличать неизвестное поле от явного несовпадения.
+let caretCases: [(String, String, CaretContext?, String)] = [
+    ("совпадение", "hello", CaretContext(before: "hello", selection: 0, tail: 0), "match"),
+    ("короче буфера", "hello", CaretContext(before: "x", selection: 0, tail: 0), "mismatch"),
+    ("пустое поле", "hello", CaretContext(before: "", selection: 0, tail: 0), "mismatch"),
+    ("недоступное поле", "hello", nil, "unknown"),
+    ("другое слово", "hello", CaretContext(before: "world", selection: 0, tail: 0), "mismatch"),
+    ("регистр", "hello", CaretContext(before: "Hello", selection: 0, tail: 0), "match"),
+    ("выделение внутри", "hello", CaretContext(before: "hello", selection: 2, tail: 1), "mismatch"),
+]
+var caretFailures = 0
+for (name, expected, context, want) in caretCases {
+    let got: String
+    switch checkBeforeCaret(expected, context: context) {
+    case .match: got = "match"
+    case .mismatch: got = "mismatch"
+    case .unknown: got = "unknown"
+    }
+    if got != want { caretFailures += 1; print("FAIL caret:", name, got, "expected", want) }
+}
+print("Проверка поля: \(caretCases.count - caretFailures)/\(caretCases.count) верно")
+if !expectFail.isEmpty || caretFailures > 0 || !keepBad.isEmpty || !enKeepBad.isEmpty || !fileBad.isEmpty || !miss.isEmpty || !bad.isEmpty { exit(1) }

@@ -712,6 +712,24 @@ func focusedAppBundleID() -> String? {
     return NSWorkspace.shared.frontmostApplication?.bundleIdentifier
 }
 
+/// Идентичность поля, в котором началась операция. Текст и положение курсора могут меняться,
+/// но отложенный ввод не должен переходить в другое поле или защищённый ввод.
+struct InputTarget {
+    let element: AXUIElement
+    static func capture() -> InputTarget? {
+        guard !IsSecureEventInputEnabled() else { return nil }
+        var ref: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(),
+            kAXFocusedUIElementAttribute as CFString, &ref) == .success, let ref = ref,
+            CFGetTypeID(ref) == AXUIElementGetTypeID() else { return nil }
+        return InputTarget(element: ref as! AXUIElement)
+    }
+    func isCurrent() -> Bool {
+        guard let now = InputTarget.capture() else { return false }
+        return CFEqual(element, now.element)
+    }
+}
+
 /// Текст поля до курсора (до начала выделения) и выделение после него.
 struct CaretContext: Equatable {
     let before: String
@@ -765,12 +783,12 @@ enum CaretCheck {
 }
 
 /// Совпадает ли текст перед курсором (перед автодополнением) с `expected`.
-func checkBeforeCaret(_ expected: String) -> CaretCheck {
-    guard let ctx = caretContext() else { return .unknown }
+func checkBeforeCaret(_ expected: String, context: CaretContext? = caretContext()) -> CaretCheck {
+    guard let ctx = context else { return .unknown }
     if ctx.selection > 0 && !ctx.completion { return .mismatch }
     let ns = ctx.before as NSString
     let count = expected.utf16.count
-    guard ns.length >= count else { return .unknown }
+    guard ns.length >= count else { return .mismatch }
     let actual = ns.substring(from: ns.length - count)
     // Регистр не важен: приложения сами делают заглавной первую букву предложения.
     return normalizedForCompare(actual).lowercased() == normalizedForCompare(expected).lowercased()
@@ -854,7 +872,8 @@ final class Switcher {
     var comboWasDown = false
 
     /// Идёт исправление: нажатия пользователя откладываются и повторяются после него.
-    var busy = false { didSet { if busy { busySince = ProcessInfo.processInfo.systemUptime } } }
+    var busy = false { didSet { if busy { operationGeneration += 1; busySince = ProcessInfo.processInfo.systemUptime } } }
+    var operationGeneration = 0
     var busySince: TimeInterval = 0
     var pending: [Key] = []
     var swallowedUps: Set<CGKeyCode> = []
@@ -871,9 +890,28 @@ final class Switcher {
     private var keyGeneration = 0
 
     func reset() {
+        if busy { cancelOperation() }
         buffer.removeAll()
         prevWords.removeAll()
         idleWork?.cancel()
+    }
+
+    func cancelOperation() {
+        operationGeneration += 1
+        busy = false
+        pending.removeAll()
+        buffer.removeAll()
+        prevWords.removeAll()
+        lastAuto = nil
+        lastCaseFix = nil
+        idleWork?.cancel()
+        lastReplaceNote = "замена отменена: поле ввода или действие пользователя изменилось"
+    }
+
+    func operationIsCurrent(_ generation: Int, target: InputTarget) -> Bool {
+        guard generation == operationGeneration else { return false }
+        guard target.isCurrent() else { cancelOperation(); return false }
+        return true
     }
 
     /// Возвращает true, если событие нужно «проглотить» (не пускать в приложение).
@@ -881,8 +919,7 @@ final class Switcher {
         if event.getIntegerValueField(.eventSourceUserData) == magic { return false }
         let now = ProcessInfo.processInfo.systemUptime
         if busy && now - busySince > 1.0 {  // страховка от зависания
-            busy = false
-            pending.removeAll()
+            cancelOperation()
         }
         switch type {
         case .keyDown:
@@ -937,7 +974,7 @@ final class Switcher {
             || flags.contains(.maskAlternate)
 
         if busy {
-            if commandLike { return false }
+            if commandLike { reset(); return false }
             // Пока идёт исправление, откладываем набор и повторим его после.
             pending.append(Key(code: code, flags: flags))
             swallowedUps.insert(code)
@@ -966,7 +1003,12 @@ final class Switcher {
                 swallowedUps.insert(code)
                 busy = true
                 let replayFlags = flags.intersection([.maskShift, .maskAlphaShift, .maskCommand])
-                DispatchQueue.main.async { self.perform(plan, trigger: key, triggerFlags: replayFlags) }
+                let generation = operationGeneration
+                guard let target = InputTarget.capture() else { cancelOperation(); return false }
+                DispatchQueue.main.async {
+                    guard self.operationIsCurrent(generation, target: target) else { return }
+                    self.perform(plan, trigger: key, triggerFlags: replayFlags)
+                }
                 return true
             }
             if code == kTab { reset() } else { registerBoundary(key) }
@@ -1042,7 +1084,12 @@ final class Switcher {
             comboWasDown = true
             lastShiftPress = 0
             shiftWasDown = shift
-            DispatchQueue.main.async { self.convertSelection() }
+            let generation = operationGeneration
+            let target = InputTarget.capture()
+            DispatchQueue.main.async {
+                guard generation == self.operationGeneration, target?.isCurrent() == true else { return }
+                self.convertSelection()
+            }
             return
         }
         if !combo { comboWasDown = false }
@@ -1052,7 +1099,12 @@ final class Switcher {
             let now = ProcessInfo.processInfo.systemUptime
             if now - lastShiftPress < 0.35 {
                 lastShiftPress = 0
-                DispatchQueue.main.async { self.convertWord() }
+                let generation = operationGeneration
+                let target = InputTarget.capture()
+                DispatchQueue.main.async {
+                    guard generation == self.operationGeneration, target?.isCurrent() == true else { return }
+                    self.convertWord()
+                }
             } else {
                 lastShiftPress = now
             }
@@ -1426,6 +1478,8 @@ final class Switcher {
     /// false — текст перед курсором не совпал с буфером, ничего не сделано.
     private func replaceWord(_ keys: [Key], typed: [Key]? = nil, fromLang: String, toRussian: Bool,
                              then done: @escaping () -> Void) -> Bool {
+        guard let targetField = InputTarget.capture() else { return false }
+        let generation = operationGeneration
         let toLang = toRussian ? "ru" : "en"
         let expected = shownString(keys, lang: fromLang)
         var ctx: CaretContext?
@@ -1457,6 +1511,7 @@ final class Switcher {
             : "поле читается, автодополнение=\(extra > 0)"
 
         waitForStableCaret(enabled: target != nil) { now in
+            guard self.operationIsCurrent(generation, target: targetField) else { return }
             // Поле могло подставить автодополнение уже после проверки и «съесть» Backspace —
             // тогда в начале остались буквы старого слова: дотираем их.
             var fix = 0
@@ -1469,6 +1524,7 @@ final class Switcher {
                 self.lastReplaceNote += ", дотёрто лишних символов: \(fix)"
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + (fix > 0 ? 0.03 : 0)) {
+                guard self.operationIsCurrent(generation, target: targetField) else { return }
                 typeKeys(typed ?? keys, lang: toLang)
                 done()
             }
@@ -1509,10 +1565,13 @@ final class Switcher {
         let ends = trigger.map { $0.code == kReturn || $0.code == kKeypadEnter || $0.code == kTab } ?? false
         let isEnter = trigger.map { $0.code == kReturn || $0.code == kKeypadEnter } ?? false
         let original = buffer
+        let generation = operationGeneration
+        let targetField = InputTarget.capture()
         let started = replaceWord(plan.keys, typed: plan.retype, fromLang: plan.fromLang, toRussian: plan.toRussian) {
             // Перед Enter — пауза: поиску (Spotlight, лаунчеры) нужно обновить результаты,
             // иначе откроется то, что нашлось по неправильному слову.
             DispatchQueue.main.asyncAfter(deadline: .now() + (isEnter ? 0.15 : 0)) {
+                guard let targetField = targetField, self.operationIsCurrent(generation, target: targetField) else { return }
                 if let trigger = trigger { self.tapTrigger(trigger, flags: triggerFlags, lang: toLang) }
 
                 let tail = trigger.map { [$0] } ?? []
@@ -1589,8 +1648,9 @@ final class Switcher {
 
     /// Option + Shift: Cmd+C -> конвертируем -> Cmd+V -> возвращаем прежний буфер обмена целиком.
     private func convertSelection() {
-        guard !busy else { return }
+        guard !busy, let targetField = InputTarget.capture() else { return }
         busy = true
+        let generation = operationGeneration
         let pb = NSPasteboard.general
         let saved = snapshotPasteboard(pb)
         let changeCount = pb.changeCount
@@ -1600,6 +1660,7 @@ final class Switcher {
         // Ждём копирования до 0,5 с: Electron-приложения отвечают не сразу.
         func waitForCopy(_ attempt: Int) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                guard self.operationIsCurrent(generation, target: targetField) else { return }
                 guard pb.changeCount != changeCount, let text = pb.string(forType: .string) else {
                     if attempt < 10 { waitForCopy(attempt + 1) } else { self.finish() }  // ничего не выделено
                     return
