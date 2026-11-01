@@ -747,6 +747,15 @@ struct InputTarget {
         guard let now = InputTarget.capture() else { return false }
         return CFEqual(element, now.element)
     }
+    func mismatchDescription() -> String {
+        if IsSecureEventInputEnabled() { return "включился защищённый ввод" }
+        guard let now = InputTarget.capture() else { return "активное поле недоступно через Accessibility" }
+        var oldPID: pid_t = 0, newPID: pid_t = 0
+        AXUIElementGetPid(element, &oldPID)
+        AXUIElementGetPid(now.element, &newPID)
+        if oldPID != newPID { return "изменился процесс активного поля" }
+        return "изменился AX-элемент поля в том же процессе"
+    }
 }
 
 /// Текст поля до курсора (до начала выделения) и выделение после него.
@@ -938,14 +947,14 @@ final class Switcher {
     private var idleWork: DispatchWorkItem?
     private var keyGeneration = 0
 
-    func reset() {
-        if busy { cancelOperation() }
+    func reset(reason: String = "сброшен буфер ввода") {
+        if busy { cancelOperation(reason: reason) }
         buffer.removeAll()
         prevWords.removeAll()
         idleWork?.cancel()
     }
 
-    func cancelOperation() {
+    func cancelOperation(reason: String = "поле ввода или действие пользователя изменилось") {
         operationGeneration += 1
         busy = false
         recoverPending()
@@ -957,12 +966,12 @@ final class Switcher {
         lastAuto = nil
         lastCaseFix = nil
         idleWork?.cancel()
-        lastReplaceNote = "замена отменена: поле ввода или действие пользователя изменилось"
+        lastReplaceNote = "замена отменена: " + reason
     }
 
     func operationIsCurrent(_ generation: Int, target: InputTarget) -> Bool {
         guard generation == operationGeneration else { return false }
-        guard target.isCurrent() else { cancelOperation(); return false }
+        guard target.isCurrent() else { cancelOperation(reason: target.mismatchDescription()); return false }
         return true
     }
 
@@ -971,7 +980,7 @@ final class Switcher {
         if event.getIntegerValueField(.eventSourceUserData) == magic { return false }
         let now = ProcessInfo.processInfo.systemUptime
         if busy && now - busySince > 1.0 {  // страховка от зависания
-            cancelOperation()
+            cancelOperation(reason: "операция длится больше секунды")
         }
         switch type {
         case .keyDown:
@@ -983,7 +992,7 @@ final class Switcher {
             onFlagsChanged(event)
             return false
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
-            reset()
+            reset(reason: "нажата кнопка мыши")
             return false
         default:
             return false
@@ -1026,7 +1035,7 @@ final class Switcher {
             || flags.contains(.maskAlternate)
 
         if busy {
-            if commandLike { reset(); return false }
+            if commandLike { reset(reason: "нажато сочетание Command/Control/Option"); return false }
             // Пока идёт исправление, откладываем набор и повторим его после.
             pending.append(Key(code: code, flags: flags))
             swallowedUps.insert(code)
@@ -1056,7 +1065,7 @@ final class Switcher {
                 busy = true
                 let replayFlags = flags.intersection([.maskShift, .maskAlphaShift, .maskCommand])
                 let generation = operationGeneration
-                guard let target = InputTarget.capture() else { cancelOperation(); return false }
+                guard let target = InputTarget.capture() else { cancelOperation(reason: "исходное поле недоступно через Accessibility"); return false }
                 DispatchQueue.main.async {
                     guard self.operationIsCurrent(generation, target: target) else { return }
                     self.perform(plan, trigger: key, triggerFlags: replayFlags)
@@ -1877,7 +1886,7 @@ final class AppController: NSObject, NSMenuDelegate {
     }
 
     @objc func appActivated(_ note: Notification) {
-        switcher.reset()  // сменилось приложение — буфер набранного слова больше не актуален
+        switcher.reset(reason: "уведомление о смене активного приложения")  // сменилось приложение — буфер набранного слова больше не актуален
         guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
               app.bundleIdentifier != Bundle.main.bundleIdentifier else { return }
         lastApp = app
@@ -2361,7 +2370,7 @@ func installTap() -> Bool {
         callback: { _, type, event, _ in
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
                 // Пока перехват был выключен, часть нажатий прошла мимо — буфер больше не верен.
-                switcher.reset()
+                switcher.reset(reason: type == .tapDisabledByTimeout ? "macOS отключила перехват по тайм-ауту" : "macOS временно отключила перехват")
                 if let tap = eventTap { CGEvent.tapEnable(tap: tap, enable: true) }
                 return Unmanaged.passUnretained(event)
             }
