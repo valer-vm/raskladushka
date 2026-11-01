@@ -239,3 +239,23 @@ for (name, expected, context, want) in caretCases {
 }
 print("Проверка поля: \(caretCases.count - caretFailures)/\(caretCases.count) верно")
 if !expectFail.isEmpty || caretFailures > 0 || !keepBad.isEmpty || !enKeepBad.isEmpty || !fileBad.isEmpty || !miss.isEmpty || !bad.isEmpty { exit(1) }
+
+
+let idleCases: [(String?, String?, String?, Bool)] = [
+    ("com.apple.Safari", nil, "WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD", true),
+    ("com.apple.Safari", "AXTextField", "WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD", true),
+    ("com.apple.Safari", "AXTextField", "other-field", false),
+    ("other.app", nil, "WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD", false),
+    ("other.app", "AXSearchField", nil, true),
+    ("com.apple.Spotlight", nil, nil, true),
+    (nil, nil, nil, false),
+]
+var idleFailures = 0
+for (appID, subrole, identifier, want) in idleCases {
+    if supportsIdleCorrection(appID: appID, subrole: subrole, identifier: identifier) != want {
+        idleFailures += 1
+        print("FAIL idle:", appID ?? "nil", subrole ?? "nil", identifier ?? "nil")
+    }
+}
+print("Проверка поиска: \(idleCases.count - idleFailures)/\(idleCases.count) верно")
+if idleFailures > 0 { exit(1) }

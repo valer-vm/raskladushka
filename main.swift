@@ -846,16 +846,28 @@ struct PrevWord {
 /// Лаунчеры и поиск: там слово часто не заканчивают пробелом, поэтому исправляем и по паузе.
 let searchApps = ["com.apple.Spotlight", "com.raycast.macos", "com.runningwithcrayons.Alfred", "at.obdev.LaunchBar"]
 
+/// Проверяем только известное поле Safari, а не все текстовые поля браузера.
+func supportsIdleCorrection(appID: String?, subrole: String?, identifier: String?) -> Bool {
+    if let id = appID, searchApps.contains(where: { id.hasPrefix($0) }) { return true }
+    if subrole == (kAXSearchFieldSubrole as String) { return true }
+    return appID == "com.apple.Safari" && identifier == "WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD"
+}
+
 func isSearchFieldFocused() -> Bool {
-    if let id = focusedAppBundleID(), searchApps.contains(where: { id.hasPrefix($0) }) { return true }
-    let system = AXUIElementCreateSystemWide()
+    let appID = focusedAppBundleID()
+    if supportsIdleCorrection(appID: appID, subrole: nil, identifier: nil) { return true }
     var focusedRef: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
-          let focused = focusedRef else { return false }
-    var subrole: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(focused as! AXUIElement, kAXSubroleAttribute as CFString, &subrole) == .success
-    else { return false }
-    return (subrole as? String) == (kAXSearchFieldSubrole as String)
+    guard AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(),
+        kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
+        let focused = focusedRef, CFGetTypeID(focused) == AXUIElementGetTypeID() else { return false }
+    let element = focused as! AXUIElement
+    func attribute(_ name: String) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else { return nil }
+        return value as? String
+    }
+    return supportsIdleCorrection(appID: appID, subrole: attribute(kAXSubroleAttribute as String),
+        identifier: attribute(kAXIdentifierAttribute as String))
 }
 
 final class Switcher {
