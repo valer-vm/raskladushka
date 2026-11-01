@@ -56,6 +56,29 @@ _ = d.replaceWord(ks, fromLang: "en", toRussian: true) {}
 RunLoop.current.run(until: Date().addingTimeInterval(0.4))
 if probeEvents.filter({ !$0.hasSuffix("text=") }).count != ks.count { exit(1) }
 print("Unchanged field still receives replacement: PASS")
+probeEvents = []; probeLayout = "en"
+let recovered = Switcher(); recovered.busy = true
+recovered.pending = ks
+recovered.cancelOperation()
+if recovered.recoveredInputs != [shownString(ks, lang: "en")!] { exit(1) }
+recovered.cancelOperation()
+if recovered.recoveredInputs.count != 1 || !recovered.pending.isEmpty { exit(1) }
+if !probeEvents.isEmpty { exit(1) }
+print("Cancelled pending text retained once without replay: PASS")
+let interrupted = Switcher(); interrupted.busy = true
+interrupted.deletedText = "original"; interrupted.heldBoundary = " "
+interrupted.pending = ks
+interrupted.cancelOperation()
+if interrupted.recoveredInputs != ["original " + shownString(ks, lang: "en")!] { exit(1) }
+print("Deleted original and withheld boundary remain recoverable: PASS")
+let beforeIgnored = ignoredWords
+probeCaret = CaretContext(before: shownString(ks, lang: "en")!, selection: 0, tail: 0)
+let undo = Switcher(); undo.buffer = ks
+undo.lastAuto = (ks, "undo-test", ProcessInfo.processInfo.systemUptime)
+undo.convertWord()
+RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+if ignoredWords != beforeIgnored || undo.lastUndoCandidate != "undo-test" { exit(1) }
+print("Undo requires explicit action to remember exception: PASS")
 print("All keyboard output was intercepted by the probe; no events sent to apps.")
 '''
 with tempfile.TemporaryDirectory() as tmp:

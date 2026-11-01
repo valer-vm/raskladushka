@@ -6,7 +6,7 @@
 //                     (в Spotlight и полях поиска — ещё и по паузе в наборе), если оно
 //                     «не слово» в текущей раскладке, а в другой — слово. Слова не из словаря
 //                     (имена, сленг, бренды) оцениваются по статистике буквосочетаний (Ngrams.swift).
-//                     Отмена двойным Shift запоминает слово в личных исключениях.
+//                     Отмена двойным Shift возвращает слово; постоянное исключение добавляется отдельно через меню.
 //   Регистр         — «ПРивет» -> «Привет», «пРИВЕТ» (задели Caps Lock) -> «привет» с выключением Caps Lock.
 //
 // Сборка и установка: bash build.sh
@@ -888,9 +888,27 @@ final class Switcher {
     var operationGeneration = 0
     var busySince: TimeInterval = 0
     var pending: [Key] = []
+    /// Отменённый ввод хранится только в памяти, до явного копирования или удаления.
+    var recoveredInputs: [String] = []
+    var deletedText: String?
+    var heldBoundary: String?
+    var recoveryChanged: (() -> Void)?
+    var lastUndoCandidate: String?
+
+    func recoverPending() {
+        let lang = currentLayoutLanguage() ?? "en"
+        var text = (deletedText ?? "") + (heldBoundary ?? "")
+        for key in pending {
+            if key.code == kBackspace { if !text.isEmpty { text.removeLast() } }
+            else if key.code == kReturn || key.code == kKeypadEnter { text += "\n" }
+            else if key.code == kTab { text += "\t" }
+            else if let char = shownChar(key, lang: lang) { text.append(char) }
+        }
+        if !text.isEmpty { recoveredInputs.append(text); recoveryChanged?() }
+    }
     var swallowedUps: Set<CGKeyCode> = []
 
-    /// Последнее автоисправление — чтобы распознать отмену и запомнить слово.
+    /// Последнее автоисправление — чтобы распознать отмену.
     var lastAuto: (buffer: [Key], shown: String, time: TimeInterval)?
     /// Раскладка, в которую только что переключило автоисправление.
     var lastAutoLang: String?
@@ -911,6 +929,9 @@ final class Switcher {
     func cancelOperation() {
         operationGeneration += 1
         busy = false
+        recoverPending()
+        deletedText = nil
+        heldBoundary = nil
         pending.removeAll()
         buffer.removeAll()
         prevWords.removeAll()
@@ -1508,6 +1529,7 @@ final class Switcher {
 
         // Если за словом висит автодополнение (Spotlight), первый Backspace сотрёт его, а не букву.
         let extra = ctx?.completion == true ? 1 : 0
+        deletedText = expected
         tapBackspaces(keys.count + extra)
         // Только регистр — раскладку не трогаем (иначе «Русская – ПК» могла бы смениться на другую русскую).
         if toLang != fromLang { switchLayout(toRussian: toRussian) }
@@ -1538,6 +1560,7 @@ final class Switcher {
             DispatchQueue.main.asyncAfter(deadline: .now() + (fix > 0 ? 0.03 : 0)) {
                 guard self.operationIsCurrent(generation, target: targetField) else { return }
                 typeKeys(typed ?? keys, lang: toLang)
+                self.deletedText = nil
                 done()
             }
         }
@@ -1577,6 +1600,11 @@ final class Switcher {
         let ends = trigger.map { $0.code == kReturn || $0.code == kKeypadEnter || $0.code == kTab } ?? false
         let isEnter = trigger.map { $0.code == kReturn || $0.code == kKeypadEnter } ?? false
         let original = buffer
+        heldBoundary = trigger.flatMap { key in
+            if key.code == kReturn || key.code == kKeypadEnter { return "\n" }
+            if key.code == kTab { return "\t" }
+            return shownChar(key, lang: plan.fromLang).map(String.init)
+        }
         let generation = operationGeneration
         let targetField = InputTarget.capture()
         let started = replaceWord(plan.keys, typed: plan.retype, fromLang: plan.fromLang, toRussian: plan.toRussian) {
@@ -1585,6 +1613,7 @@ final class Switcher {
             DispatchQueue.main.asyncAfter(deadline: .now() + (isEnter ? 0.15 : 0)) {
                 guard let targetField = targetField, self.operationIsCurrent(generation, target: targetField) else { return }
                 if let trigger = trigger { self.tapTrigger(trigger, flags: triggerFlags, lang: toLang) }
+                self.heldBoundary = nil
 
                 let tail = trigger.map { [$0] } ?? []
                 self.prevWords = []
@@ -1610,6 +1639,7 @@ final class Switcher {
         if !started {
             // Страховка от рассинхронизации: текст перед курсором не совпал с нашим буфером.
             lastDecision = "пропущено: текст перед курсором не совпал с буфером"
+            heldBoundary = nil
             reset()
             if let trigger = trigger { tapKey(trigger.code, flags: triggerFlags) }
             finish()
@@ -1622,18 +1652,19 @@ final class Switcher {
         let keys = buffer
         let lang = currentLayoutLanguage() ?? "en"
 
-        // Сразу после исправления регистра двойной Shift возвращает как было и запоминает слово.
+        // Сразу после исправления регистра двойной Shift возвращает как было; запоминание доступно отдельно в меню.
         if let fix = lastCaseFix, fix.buffer == keys, fix.lang == lang,
            ProcessInfo.processInfo.systemUptime - fix.time < 20 {
             busy = true
             lastCaseFix = nil
             let started = replaceWord(keys, typed: fix.original, fromLang: lang, toRussian: lang == "ru") {
                 self.buffer = fix.original
+                self.lastUndoCandidate = fix.shown
+                self.lastDecision = "регистр возвращён; запоминание — отдельно в меню"
                 self.finish()
             }
             if started {
-                addIgnoredWord(fix.shown)
-                lastDecision = "регистр возвращён, слово в личных исключениях"
+                lastDecision = "возвращаем прежний регистр"
             } else {
                 reset()
                 finish()
@@ -1641,8 +1672,18 @@ final class Switcher {
             return
         }
 
+        let undone = lastAuto.flatMap { last in
+            last.buffer == keys && ProcessInfo.processInfo.systemUptime - last.time < 20 ? last.shown : nil
+        }
         busy = true
-        let started = replaceWord(keys, fromLang: lang, toRussian: lang != "ru") { self.finish() }
+        let started = replaceWord(keys, fromLang: lang, toRussian: lang != "ru") {
+            if let word = undone {
+                self.lastUndoCandidate = word
+                self.lastAuto = nil
+                self.lastDecision = "исправление отменено; запоминание — отдельно в меню"
+            }
+            self.finish()
+        }
         guard started else {
             lastDecision = "ручное исправление пропущено: текст перед курсором не совпал с буфером"
             reset()
@@ -1650,12 +1691,7 @@ final class Switcher {
             return
         }
 
-        // Если сразу после автоисправления вы нажали двойной Shift — это отмена: запоминаем слово.
-        if let last = lastAuto, last.buffer == keys,
-           ProcessInfo.processInfo.systemUptime - last.time < 20 {
-            addIgnoredWord(last.shown)
-            lastAuto = nil
-        }
+
     }
 
     /// Option + Shift: Cmd+C -> конвертируем -> Cmd+V -> возвращаем прежний буфер обмена целиком.
@@ -1734,6 +1770,8 @@ final class AppController: NSObject, NSMenuDelegate {
     let excludedMenu = NSMenu()
     let verifyItem: NSMenuItem
     let caseItem: NSMenuItem
+    let rememberItem: NSMenuItem
+    let recoveryItem: NSMenuItem
     let ignoredItem: NSMenuItem
     let unignoreItem: NSMenuItem
     let loginItem: NSMenuItem
@@ -1750,6 +1788,8 @@ final class AppController: NSObject, NSMenuDelegate {
                                 action: #selector(AppController.toggleVerify), keyEquivalent: "")
         caseItem = NSMenuItem(title: "Исправлять ДВойные заглавные и cAPS lOCK",
                               action: #selector(AppController.toggleCaseFix), keyEquivalent: "")
+        rememberItem = NSMenuItem(title: "", action: #selector(AppController.rememberUndo), keyEquivalent: "")
+        recoveryItem = NSMenuItem(title: "", action: #selector(AppController.showRecovery), keyEquivalent: "")
         ignoredItem = NSMenuItem(title: "", action: #selector(AppController.clearIgnored), keyEquivalent: "")
         unignoreItem = NSMenuItem(title: "", action: #selector(AppController.unignoreLast), keyEquivalent: "")
         loginItem = NSMenuItem(title: "Запускать при входе",
@@ -1768,7 +1808,7 @@ final class AppController: NSObject, NSMenuDelegate {
         let menu = NSMenu()
         menu.delegate = self
         menu.autoenablesItems = false
-        for item in [autoItem, appItem, verifyItem, caseItem, unignoreItem, ignoredItem, loginItem, setupItem, diagItem] { item.target = self }
+        for item in [autoItem, appItem, verifyItem, caseItem, rememberItem, recoveryItem, unignoreItem, ignoredItem, loginItem, setupItem, diagItem] { item.target = self }
         excludedItem.submenu = excludedMenu
 
         menu.addItem(autoItem)
@@ -1777,6 +1817,8 @@ final class AppController: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(verifyItem)
         menu.addItem(caseItem)
+        menu.addItem(rememberItem)
+        menu.addItem(recoveryItem)
         menu.addItem(unignoreItem)
         menu.addItem(ignoredItem)
         menu.addItem(.separator())
@@ -1784,8 +1826,13 @@ final class AppController: NSObject, NSMenuDelegate {
         menu.addItem(setupItem)
         menu.addItem(diagItem)
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Выход", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(withTitle: "Выход", action: #selector(AppController.quit), keyEquivalent: "q")
         statusItem.menu = menu
+        menu.items.last?.target = self
+        switcher.recoveryChanged = { [weak self] in
+            self?.statusItem.button?.title = "!"
+            self?.statusItem.button?.toolTip = "Есть набранный текст для восстановления — откройте меню Раскладушки"
+        }
 
         // Запоминаем последнее активное приложение (не наше), чтобы добавлять его в исключения.
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -1871,6 +1918,12 @@ final class AppController: NSObject, NSMenuDelegate {
 
         verifyItem.state = verifyEnabled ? .on : .off
         caseItem.state = caseFixEnabled ? .on : .off
+        if let word = switcher.lastUndoCandidate, !isIgnoredWord(word) {
+            rememberItem.title = "Больше не исправлять «\(word)»"
+            rememberItem.isHidden = false
+        } else { rememberItem.isHidden = true }
+        recoveryItem.title = "Восстановить набранный текст (\(switcher.recoveredInputs.count))…"
+        recoveryItem.isHidden = switcher.recoveredInputs.isEmpty
         ignoredItem.title = "Забыть личные исключения слов (\(ignoredWords.count))"
         ignoredItem.isEnabled = !ignoredWords.isEmpty
         // Отмена двойным Shift могла быть случайной — последнее исключение можно снять.
@@ -1893,6 +1946,49 @@ final class AppController: NSObject, NSMenuDelegate {
 
     @objc func toggleCaseFix() {
         caseFixEnabled.toggle()
+    }
+
+    @objc func rememberUndo() {
+        guard let word = switcher.lastUndoCandidate else { return }
+        addIgnoredWord(word)
+        switcher.lastUndoCandidate = nil
+    }
+
+    @objc func showRecovery() {
+        guard !switcher.recoveredInputs.isEmpty else { return }
+        let text = switcher.recoveredInputs.joined(separator: "\n")
+        let count = switcher.recoveredInputs.count
+        let alert = NSAlert()
+        alert.messageText = "Набранный текст сохранён"
+        alert.informativeText = "Замена была отменена. Этот текст не отправлялся в другое поле. Скопируйте и вставьте его в нужное место. До закрытия приложения он хранится только в памяти."
+        let view = NSTextView(frame: NSRect(x: 0, y: 0, width: 420, height: 130))
+        view.isEditable = false
+        view.string = text
+        let scroll = NSScrollView(frame: view.frame)
+        scroll.hasVerticalScroller = true
+        scroll.documentView = view
+        alert.accessoryView = scroll
+        alert.addButton(withTitle: "Скопировать")
+        alert.addButton(withTitle: "Оставить на потом")
+        alert.addButton(withTitle: "Удалить")
+        NSApp.activate(ignoringOtherApps: true)
+        let result = alert.runModal()
+        if result == .alertFirstButtonReturn {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        }
+        if result == .alertFirstButtonReturn || result == .alertThirdButtonReturn {
+            switcher.recoveredInputs.removeFirst(min(count, switcher.recoveredInputs.count))
+            updateStatusTitle()
+        }
+    }
+
+    @objc func quit() {
+        if !switcher.recoveredInputs.isEmpty {
+            showRecovery()
+            if !switcher.recoveredInputs.isEmpty { return }
+        }
+        NSApp.terminate(nil)
     }
 
     @objc func unignoreLast() {
@@ -2211,7 +2307,10 @@ func updateStatusTitle() {
     } else {
         button?.title = ok ? "⇄" : "⇄⚠︎"
     }
-    if !ok {
+    if !switcher.recoveredInputs.isEmpty {
+        button?.title = "!"
+        button?.toolTip = "Есть набранный текст для восстановления — откройте меню Раскладушки"
+    } else if !ok {
         button?.toolTip = "Раскладушка: нет доступа к клавиатуре (Универсальный доступ)"
     } else if let owner = secure {
         button?.toolTip = "Раскладушка не видит клавиш: защищённый ввод включило «\(owner)»"
