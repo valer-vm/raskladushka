@@ -250,7 +250,7 @@ func isBuiltinExcluded(_ id: String) -> Bool {
 }
 
 func isAutoDisabled(for id: String) -> Bool {
-    isBuiltinExcluded(id) || userExcludedApps.contains(id)
+    id == "app.raskladushka" || isBuiltinExcluded(id) || userExcludedApps.contains(id)
 }
 
 var autoEnabled: Bool {
@@ -270,40 +270,59 @@ var caseFixEnabled: Bool {
     set { defaults.set(newValue, forKey: "caseFixEnabled") }
 }
 
-/// Личные исключения: слова, которые вы вернули двойным Shift после автоисправления.
-/// Личные исключения хранятся только в виде хэшей (сами слова на диск не пишутся).
-var ignoredWords: Set<String> = {
-    defaults.removeObject(forKey: "ignoredWords")  // старый формат, где слова лежали открытым текстом
-    return Set(defaults.stringArray(forKey: "ignoredWordHashes") ?? [])
-}()
+/// Исключения добавляются явно через меню. Старые хэши остаются действующими;
+/// подписи новых исключений сохраняются локально для поиска и просмотра.
+var ignoredWords = Set(defaults.stringArray(forKey: "ignoredWordHashes") ?? [])
+var ignoredWordLabels = defaults.dictionary(forKey: "ignoredWordLabels") as? [String: String] ?? [:]
 
 func wordKey(_ word: String) -> String {
     SHA256.hash(data: Data(word.lowercased().utf8)).map { String(format: "%02x", $0) }.joined()
 }
-
-func isIgnoredWord(_ word: String) -> Bool {
-    ignoredWords.contains(wordKey(word))
-}
-
-/// Последнее слово, добавленное в исключения (только в памяти — чтобы его можно было снять из меню).
+func isIgnoredWord(_ word: String) -> Bool { ignoredWords.contains(wordKey(word)) }
 var lastIgnoredWord: String?
 
+func saveIgnoredWords() {
+    ignoredWordLabels = ignoredWordLabels.filter { ignoredWords.contains($0.key) }
+    defaults.set(Array(ignoredWords), forKey: "ignoredWordHashes")
+    defaults.set(ignoredWordLabels, forKey: "ignoredWordLabels")
+}
 func addIgnoredWord(_ word: String) {
     lastIgnoredWord = word
     ignoredWords.insert(wordKey(word))
-    if ignoredWords.count > 1000 { ignoredWords.remove(ignoredWords.first!) }
-    defaults.set(Array(ignoredWords), forKey: "ignoredWordHashes")
+    ignoredWordLabels[wordKey(word)] = word
+    saveIgnoredWords()
 }
-
-func removeIgnoredWord(_ word: String) {
-    ignoredWords.remove(wordKey(word))
-    defaults.set(Array(ignoredWords), forKey: "ignoredWordHashes")
-    if lastIgnoredWord == word { lastIgnoredWord = nil }
+func removeIgnoredHash(_ hash: String) {
+    ignoredWords.remove(hash)
+    ignoredWordLabels.removeValue(forKey: hash)
+    if let word = lastIgnoredWord, wordKey(word) == hash { lastIgnoredWord = nil }
+    saveIgnoredWords()
 }
-
+func removeIgnoredWord(_ word: String) { removeIgnoredHash(wordKey(word)) }
 func clearIgnoredWords() {
     ignoredWords.removeAll()
-    defaults.set([String](), forKey: "ignoredWordHashes")
+    lastIgnoredWord = nil
+    saveIgnoredWords()
+}
+
+struct WordExceptionRow {
+    let hash: String
+    let word: String?
+    var title: String { word ?? "Старое исключение · " + String(hash.prefix(10)) }
+}
+func wordExceptionRows(query: String, hashes: Set<String>, labels: [String: String]) -> [WordExceptionRow] {
+    let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return hashes.compactMap { hash -> WordExceptionRow? in
+        let word = labels[hash]
+        if needle.isEmpty { return WordExceptionRow(hash: hash, word: word) }
+        if word?.lowercased().contains(needle) == true { return WordExceptionRow(hash: hash, word: word) }
+        // Старое слово нельзя восстановить из хэша, но можно найти по точному вводу.
+        if wordKey(needle) == hash { return WordExceptionRow(hash: hash, word: word ?? query) }
+        return nil
+    }.sorted {
+        let a = $0.title.lowercased(), b = $1.title.lowercased()
+        return a == b ? $0.hash < $1.hash : a < b
+    }
 }
 
 /// Приложение, которое включило защищённый ввод (Secure Input): пока он включён, клавиши не видны никому.
@@ -1790,7 +1809,7 @@ final class AppController: NSObject, NSMenuDelegate {
                               action: #selector(AppController.toggleCaseFix), keyEquivalent: "")
         rememberItem = NSMenuItem(title: "", action: #selector(AppController.rememberUndo), keyEquivalent: "")
         recoveryItem = NSMenuItem(title: "", action: #selector(AppController.showRecovery), keyEquivalent: "")
-        ignoredItem = NSMenuItem(title: "", action: #selector(AppController.clearIgnored), keyEquivalent: "")
+        ignoredItem = NSMenuItem(title: "", action: #selector(AppController.showWordExceptions), keyEquivalent: "")
         unignoreItem = NSMenuItem(title: "", action: #selector(AppController.unignoreLast), keyEquivalent: "")
         loginItem = NSMenuItem(title: "Запускать при входе",
                                action: #selector(AppController.toggleLogin), keyEquivalent: "")
@@ -1924,8 +1943,8 @@ final class AppController: NSObject, NSMenuDelegate {
         } else { rememberItem.isHidden = true }
         recoveryItem.title = "Восстановить набранный текст (\(switcher.recoveredInputs.count))…"
         recoveryItem.isHidden = switcher.recoveredInputs.isEmpty
-        ignoredItem.title = "Забыть личные исключения слов (\(ignoredWords.count))"
-        ignoredItem.isEnabled = !ignoredWords.isEmpty
+        ignoredItem.title = "Исключения слов… (\(ignoredWords.count))"
+        ignoredItem.isEnabled = true
         // Отмена двойным Shift могла быть случайной — последнее исключение можно снять.
         if let w = lastIgnoredWord {
             unignoreItem.title = "Снова исправлять «\(w)»"
@@ -1995,8 +2014,10 @@ final class AppController: NSObject, NSMenuDelegate {
         if let w = lastIgnoredWord { removeIgnoredWord(w) }
     }
 
-    @objc func clearIgnored() {
-        clearIgnoredWords()
+    let wordExceptions = WordExceptionsController()
+
+    @objc func showWordExceptions() {
+        wordExceptions.show()
     }
 
     @objc func toggleApp() {
@@ -2071,6 +2092,82 @@ final class AppController: NSObject, NSMenuDelegate {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(alert.informativeText, forType: .string)
         }
+    }
+}
+
+// MARK: - Исключения слов
+
+final class WordExceptionsController: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
+    private var window: NSWindow?
+    private let search = NSSearchField()
+    private let table = NSTableView()
+    private let countLabel = NSTextField(labelWithString: "")
+    private let deleteButton = NSButton(title: "Удалить выбранные", target: nil, action: nil)
+    private var rows: [WordExceptionRow] = []
+
+    func show() {
+        if window == nil { build() }
+        reload()
+        NSApp.activate(ignoringOtherApps: true)
+        window?.makeKeyAndOrderFront(nil)
+        window?.makeFirstResponder(search)
+    }
+    private func build() {
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 540, height: 430),
+                         styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+        w.title = "Исключения слов"
+        w.isReleasedWhenClosed = false
+        w.center()
+        guard let content = w.contentView else { return }
+        search.frame = NSRect(x: 20, y: 378, width: 500, height: 28)
+        search.placeholderString = "Найти слово…"
+        search.delegate = self
+        search.sendsSearchStringImmediately = true
+        content.addSubview(search)
+        let hint = NSTextField(wrappingLabelWithString: "Новые исключения показаны словами. Для старых названия не сохранены: введите слово целиком, чтобы найти его.")
+        hint.frame = NSRect(x: 20, y: 325, width: 500, height: 42)
+        hint.textColor = .secondaryLabelColor
+        content.addSubview(hint)
+        let scroll = NSScrollView(frame: NSRect(x: 20, y: 75, width: 500, height: 240))
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .bezelBorder
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("word"))
+        column.title = "Слово или старое исключение"
+        column.width = 475
+        table.addTableColumn(column)
+        table.allowsMultipleSelection = true
+        table.dataSource = self
+        table.delegate = self
+        table.rowHeight = 26
+        scroll.documentView = table
+        content.addSubview(scroll)
+        countLabel.frame = NSRect(x: 20, y: 24, width: 260, height: 25)
+        content.addSubview(countLabel)
+        deleteButton.frame = NSRect(x: 300, y: 20, width: 220, height: 32)
+        deleteButton.target = self
+        deleteButton.action = #selector(deleteSelected)
+        content.addSubview(deleteButton)
+        window = w
+    }
+    private func reload() {
+        rows = wordExceptionRows(query: search.stringValue, hashes: ignoredWords, labels: ignoredWordLabels)
+        table.deselectAll(nil)
+        table.reloadData()
+        countLabel.stringValue = "Найдено: \(rows.count) · Всего: \(ignoredWords.count)"
+        deleteButton.isEnabled = false
+    }
+    func controlTextDidChange(_ notification: Notification) { reload() }
+    func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        NSTextField(labelWithString: rows[row].title)
+    }
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        deleteButton.isEnabled = !table.selectedRowIndexes.isEmpty
+    }
+    @objc private func deleteSelected() {
+        let hashes = table.selectedRowIndexes.compactMap { rows.indices.contains($0) ? rows[$0].hash : nil }
+        for hash in hashes { removeIgnoredHash(hash) }
+        reload()
     }
 }
 

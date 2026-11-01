@@ -259,3 +259,17 @@ for (appID, subrole, identifier, want) in idleCases {
 }
 print("Проверка поиска: \(idleCases.count - idleFailures)/\(idleCases.count) верно")
 if idleFailures > 0 { exit(1) }
+
+
+let testHashes: Set<String> = [wordKey("Alpha"), wordKey("Alphabet"), wordKey("legacy")]
+let testLabels = [wordKey("Alpha"): "Alpha", wordKey("Alphabet"): "Alphabet"]
+let exceptionChecks = [
+    wordExceptionRows(query: "", hashes: testHashes, labels: testLabels).count == 3,
+    wordExceptionRows(query: "ALP", hashes: testHashes, labels: testLabels).count == 2,
+    wordExceptionRows(query: "missing", hashes: testHashes, labels: testLabels).isEmpty,
+    wordExceptionRows(query: "LEGACY", hashes: testHashes, labels: testLabels).first?.hash == wordKey("legacy"),
+    wordExceptionRows(query: "leg", hashes: testHashes, labels: testLabels).isEmpty,
+    wordExceptionRows(query: "", hashes: testHashes.subtracting([wordKey("Alpha")]), labels: testLabels).count == 2,
+]
+print("Поиск исключений: \(exceptionChecks.filter { $0 }.count)/\(exceptionChecks.count) верно")
+if exceptionChecks.contains(false) { exit(1) }
