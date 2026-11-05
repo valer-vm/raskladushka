@@ -750,10 +750,16 @@ func usesElectronRuntime(
 func prepareAccessibility(for app: NSRunningApplication) {
     guard let url = app.bundleURL,
           usesElectronRuntime(at: url),
-          accessibilityPrepared.insert(app.processIdentifier).inserted else { return }
-    let result = AXUIElementSetAttributeValue(AXUIElementCreateApplication(app.processIdentifier),
+          !accessibilityPrepared.contains(app.processIdentifier) else { return }
+    let element = AXUIElementCreateApplication(app.processIdentifier)
+    var result = AXUIElementSetAttributeValue(element,
         "AXManualAccessibility" as CFString, kCFBooleanTrue)
     accessibilityPreparationNote = "\(app.bundleIdentifier ?? "Electron"): AXManualAccessibility = \(result.rawValue)"
+    if result == .attributeUnsupported && app.bundleIdentifier == "com.openai.codex" {
+        result = AXUIElementSetAttributeValue(element, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
+        accessibilityPreparationNote += ", AXEnhancedUserInterface = \(result.rawValue)"
+    }
+    if result == .success { accessibilityPrepared.insert(app.processIdentifier) }
 }
 
 func readFocusedElement(from scope: AXUIElement) -> AXUIElement? {
