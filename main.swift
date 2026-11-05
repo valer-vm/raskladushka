@@ -735,9 +735,21 @@ func focusedAppBundleID() -> String? {
 /// Запрашиваем его один раз для активного Electron-процесса, до обработки клавиш.
 var accessibilityPrepared = Set<pid_t>()
 var accessibilityPreparationNote = "не требовалась"
+
+/// Electron-приложения могут переименовывать основной framework (например, Codex),
+/// но сохраняют стандартный app.asar с JavaScript-кодом приложения.
+func usesElectronRuntime(
+    at bundleURL: URL,
+    fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+) -> Bool {
+    let contents = bundleURL.appendingPathComponent("Contents")
+    return fileExists(contents.appendingPathComponent("Frameworks/Electron Framework.framework").path)
+        || fileExists(contents.appendingPathComponent("Resources/app.asar").path)
+}
+
 func prepareAccessibility(for app: NSRunningApplication) {
     guard let url = app.bundleURL,
-          FileManager.default.fileExists(atPath: url.appendingPathComponent("Contents/Frameworks/Electron Framework.framework").path),
+          usesElectronRuntime(at: url),
           accessibilityPrepared.insert(app.processIdentifier).inserted else { return }
     let result = AXUIElementSetAttributeValue(AXUIElementCreateApplication(app.processIdentifier),
         "AXManualAccessibility" as CFString, kCFBooleanTrue)

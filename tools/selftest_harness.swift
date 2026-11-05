@@ -288,3 +288,13 @@ let focusChecks = [
 ]
 print("Источники фокуса: \(focusChecks.filter { $0 }.count)/\(focusChecks.count) верно")
 if focusChecks.contains(false) { exit(1) }
+
+
+let electronBundle = URL(fileURLWithPath: "/Applications/Test.app")
+let electronChecks = [
+    usesElectronRuntime(at: electronBundle, fileExists: { $0.hasSuffix("Contents/Frameworks/Electron Framework.framework") }),
+    usesElectronRuntime(at: electronBundle, fileExists: { $0.hasSuffix("Contents/Resources/app.asar") }),
+    !usesElectronRuntime(at: electronBundle, fileExists: { _ in false }),
+]
+print("Распознавание Electron: \(electronChecks.filter { $0 }.count)/\(electronChecks.count) верно")
+if electronChecks.contains(false) { exit(1) }

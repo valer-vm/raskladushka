@@ -18,5 +18,5 @@ s = s.replace("IsSecureEventInputEnabled()", "false")
 s = "var testLayout = \"en\"\n" + s + open("tools/selftest_harness.swift").read()
 open(out + "/main.swift", "w").write(s)
 PY
-swiftc -O "$OUT/main.swift" Ngrams.swift -o "$OUT/selftest"
+swiftc -O -target "$(uname -m)-apple-macos13" "$OUT/main.swift" Ngrams.swift -o "$OUT/selftest"
 "$OUT/selftest"

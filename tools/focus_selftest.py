@@ -1,5 +1,5 @@
 from pathlib import Path
-import subprocess, tempfile
+import platform, subprocess, tempfile
 r=Path(__file__).resolve().parents[1]
 s=(r/'main.swift').read_text().split('// MARK: - Меню в строке состояния')[0]
 s=s.replace('if verifyEnabled { return false }', 'if true { return false }')
@@ -83,6 +83,7 @@ print("All keyboard output was intercepted by the probe; no events sent to apps.
 '''
 with tempfile.TemporaryDirectory() as tmp:
  p=Path(tmp); (p/'main.swift').write_text(s)
- subprocess.run(['swiftc','-O',str(p/'main.swift'),str(r/'Ngrams.swift'),'-o',str(p/'check')],check=True)
+ target = platform.machine() + '-apple-macos13'
+ subprocess.run(['swiftc','-O','-target',target,str(p/'main.swift'),str(r/'Ngrams.swift'),'-o',str(p/'check')],check=True)
  subprocess.run([str(p/'check')],check=True)
 
