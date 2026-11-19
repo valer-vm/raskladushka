@@ -735,6 +735,7 @@ func focusedAppBundleID() -> String? {
 /// Запрашиваем его один раз для активного Electron-процесса, до обработки клавиш.
 var accessibilityPrepared = Set<pid_t>()
 var accessibilityPreparationNote = "не требовалась"
+var accessibilityRetry: DispatchWorkItem?
 
 /// Electron-приложения могут переименовывать основной framework (например, Codex),
 /// но сохраняют стандартный app.asar с JavaScript-кодом приложения.
@@ -747,7 +748,9 @@ func usesElectronRuntime(
         || fileExists(contents.appendingPathComponent("Resources/app.asar").path)
 }
 
-func prepareAccessibility(for app: NSRunningApplication) {
+func prepareAccessibility(for app: NSRunningApplication, attempt: Int = 0) {
+    accessibilityRetry?.cancel()
+    accessibilityRetry = nil
     guard let url = app.bundleURL,
           usesElectronRuntime(at: url),
           !accessibilityPrepared.contains(app.processIdentifier) else { return }
@@ -760,6 +763,19 @@ func prepareAccessibility(for app: NSRunningApplication) {
         accessibilityPreparationNote += ", AXEnhancedUserInterface = \(result.rawValue)"
     }
     if result == .success { accessibilityPrepared.insert(app.processIdentifier) }
+    // Занятое приложение может ответить позже: повторяем без ручной смены окна.
+    // Повтор готовит доступность, но никогда не воспроизводит старый ввод.
+    if result == .cannotComplete && attempt < 5 {
+        let delay = 0.5 * pow(2.0, Double(attempt))
+        accessibilityPreparationNote += " (автоповтор \(attempt + 1)/5)"
+        let retry = DispatchWorkItem {
+            guard !app.isTerminated,
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier else { return }
+            prepareAccessibility(for: app, attempt: attempt + 1)
+        }
+        accessibilityRetry = retry
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: retry)
+    }
 }
 
 func readFocusedElement(from scope: AXUIElement) -> AXUIElement? {
